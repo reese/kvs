@@ -1,7 +1,6 @@
 #[macro_use(load_yaml)]
 extern crate clap;
 use clap::App;
-use kvs::KvStore;
 use std::process::exit;
 
 fn main() {
@@ -18,15 +17,15 @@ fn main() {
         "get" => {
             eprintln!("unimplemented");
             exit(123);
-        },
+        }
         "set" => {
             eprintln!("unimplemented");
             exit(123);
-        },
+        }
         "rm" => {
             eprintln!("unimplemented");
             exit(123);
-        },
+        }
         _ => panic!("Unrecognized argument."),
     }
 }

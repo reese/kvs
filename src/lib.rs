@@ -7,6 +7,7 @@ use std::collections::HashMap;
 /// This struct serves as the main interface for storing and retrieving
 /// data from the store. As of right now, it only stores things in-memory,
 /// but this will be changed in coming updates.
+#[derive(Default)]
 pub struct KvStore {
     store: HashMap<String, String>,
 }
@@ -18,8 +19,8 @@ impl KvStore {
     /// let mut store = KvStore::new();
     /// store.set(String::from("key"), String::from("value"));
     /// ```
-    pub fn new() -> KvStore {
-        return KvStore { store: HashMap::new() };
+    pub fn new() -> Self {
+        KvStore::default()
     }
 
     /// Sets a new value for the given key in the store.
@@ -43,7 +44,7 @@ impl KvStore {
     /// println!("Her name is {}", name); // => "Her name is Caroline"
     /// ```
     pub fn get(&self, key: String) -> Option<String> {
-        return self.store.get::<String>(&key).cloned();
+        self.store.get::<String>(&key).cloned()
     }
 
     /// Removes the given key from the store.
