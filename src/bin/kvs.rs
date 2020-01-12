@@ -1,31 +1,33 @@
-#[macro_use(load_yaml)]
-extern crate clap;
-use clap::App;
 use std::process::exit;
+use structopt::StructOpt;
+
+#[derive(StructOpt, Debug)]
+enum Config {
+    Get {
+        key: String
+    },
+    Set {
+        key: String,
+        value: String
+    },
+    Rm {
+        key: String
+    }
+}
 
 fn main() {
-    let yaml = load_yaml!("./cli.yml");
-    let app = App::from_yaml(yaml)
-        .about(env!("CARGO_PKG_DESCRIPTION"))
-        .author(env!("CARGO_PKG_AUTHORS"))
-        .name(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"));
-    let arg_matches = app.get_matches();
-    let (subcommand, _subcommand_matches) = arg_matches.subcommand();
-
-    match subcommand {
-        "get" => {
+    match Config::from_args() {
+        Config::Get { key: _ } => {
             eprintln!("unimplemented");
             exit(123);
         }
-        "set" => {
+        Config::Set { key: _, value: _ } => {
             eprintln!("unimplemented");
             exit(123);
         }
-        "rm" => {
+        Config::Rm { key: _ } => {
             eprintln!("unimplemented");
             exit(123);
         }
-        _ => panic!("Unrecognized argument."),
     }
 }
