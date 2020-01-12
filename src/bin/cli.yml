@@ -1,0 +1,31 @@
+  name: kvs
+  version: "0.1.0"
+  author: Reese Williams <reese@reesew.io>
+  about: An in-memory key-value store
+  subcommands:
+    - get:
+        about: Retrieves a value from the store.
+        args:
+          - KEY:
+              index: 1
+              required: true
+              help: The key of the value to retrieve.
+    - set:
+          about: Sets a value at the given key in the store.
+          args:
+              - KEY:
+                    index: 1
+                    required: true
+                    help: The key of the value to store.
+              - VALUE:
+                    index: 2
+                    required: true
+                    help: The value to store at the given key.
+    - rm:
+          about: Removes the given key.
+          args:
+              - KEY:
+                    index: 1
+                    required: true
+                    help: The key to remove from the store.
+
