@@ -3,16 +3,9 @@ use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 enum Config {
-    Get {
-        key: String
-    },
-    Set {
-        key: String,
-        value: String
-    },
-    Rm {
-        key: String
-    }
+    Get { key: String },
+    Set { key: String, value: String },
+    Rm { key: String },
 }
 
 fn main() {
