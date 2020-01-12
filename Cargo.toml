@@ -2,6 +2,7 @@
 name = "kvs"
 version = "0.1.0"
 authors = ["Reese Williams <reese@reesew.io>"]
+description = "A command-line key-value store."
 edition = "2018"
 
 [dependencies.clap]

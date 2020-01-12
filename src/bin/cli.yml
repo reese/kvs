@@ -1,7 +1,4 @@
   name: kvs
-  version: "0.1.0"
-  author: Reese Williams <reese@reesew.io>
-  about: An in-memory key-value store
   subcommands:
     - get:
         about: Retrieves a value from the store.
