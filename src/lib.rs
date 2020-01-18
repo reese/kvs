@@ -2,7 +2,11 @@
 //! # KVS
 //! `KVS` is a key-value store used in the `kvs` command-line utility.
 //!
+#[macro_use]
+extern crate failure;
 use std::collections::HashMap;
+use std::path::Path;
+pub use store::{KvsError, Result};
 
 /// This struct serves as the main interface for storing and retrieving
 /// data from the store. As of right now, it only stores things in-memory,
@@ -23,6 +27,11 @@ impl KvStore {
         KvStore::default()
     }
 
+    /// Will open log file (probably, this is just a placeholder)
+    pub fn open(_path: &Path) -> Result<KvStore> {
+        Ok(KvStore::new())
+    }
+
     /// Sets a new value for the given key in the store.
     /// ```rust
     /// use kvs::KvStore;
@@ -30,8 +39,9 @@ impl KvStore {
     /// store.set(String::from("module_name"), String::from("kvs"));
     /// ```
     ///
-    pub fn set(&mut self, key: String, value: String) {
+    pub fn set(&mut self, key: String, value: String) -> Result<()> {
         self.store.insert(key, value);
+        Ok(())
     }
 
     /// Retrieves a value from the store.
@@ -43,8 +53,8 @@ impl KvStore {
     /// let name = store.get(String::from("name")).expect("Name was not found in store.");
     /// println!("Her name is {}", name); // => "Her name is Caroline"
     /// ```
-    pub fn get(&self, key: String) -> Option<String> {
-        self.store.get::<String>(&key).cloned()
+    pub fn get(&self, key: String) -> Result<Option<String>> {
+        Ok(self.store.get::<String>(&key).cloned())
     }
 
     /// Removes the given key from the store.
@@ -54,7 +64,10 @@ impl KvStore {
     /// store.set(String::from("album_name"), String::from("Blood Type"));
     /// store.remove(String::from("album_name"));
     /// ```
-    pub fn remove(&mut self, key: String) {
+    pub fn remove(&mut self, key: String) -> Result<()> {
         self.store.remove::<String>(&key);
+        Ok(())
     }
 }
+
+mod store;
