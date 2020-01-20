@@ -1,11 +1,32 @@
 use failure::Fail;
+use std::convert::From;
+use std::io;
 use std::result;
 
 /// # KvsError
 /// This error is the user-facing error type for the KVS tool.
 #[derive(Fail, Debug)]
-#[fail(display = "KVS encountered an error.")]
-pub struct KvsError;
+#[fail(display = "KVS encountered the following error: {}", error_message)]
+pub struct KvsError {
+    /// The error message dummy
+    pub error_message: String,
+}
+
+impl From<io::Error> for KvsError {
+    fn from(error: io::Error) -> Self {
+        KvsError {
+            error_message: error.to_string(),
+        }
+    }
+}
+
+impl From<serde_json::Error> for KvsError {
+    fn from(error: serde_json::Error) -> Self {
+        KvsError {
+            error_message: error.to_string(),
+        }
+    }
+}
 
 /// # Result
 /// This is simply an alias to prevent the overuse

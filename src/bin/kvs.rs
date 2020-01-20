@@ -1,6 +1,7 @@
 extern crate kvs;
 
-use kvs::Result;
+use kvs::{default_path, KvStore, KvsError, Result};
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -9,17 +10,22 @@ pub enum Config {
     Set { key: String, value: String },
     Rm { key: String },
 }
+
 fn main() -> Result<()> {
+    let mut store = KvStore::open(default_path())?;
+
     match Config::from_args() {
-        Config::Get { key: _ } => {
-            eprintln!("unimplemented");
+        Config::Get { key } => {
+            let string_option = store.get(key)?;
+            println!(
+                "{}",
+                string_option.ok_or(KvsError {
+                    error_message: String::from("Key not found")
+                })?
+            );
+            Ok(())
         }
-        Config::Set { key: _, value: _ } => {
-            eprintln!("unimplemented");
-        }
-        Config::Rm { key: _ } => {
-            eprintln!("unimplemented");
-        }
+        Config::Set { key, value } => store.set(key, value),
+        Config::Rm { key } => store.remove(key),
     }
-    Ok(())
 }
