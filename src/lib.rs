@@ -14,8 +14,9 @@
 #[macro_use]
 extern crate failure;
 extern crate serde;
-use crate::store::Entry;
+use crate::store::{Entry, Permissions};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;
 use std::path::Path;
@@ -68,13 +69,14 @@ impl<'kv> KvStore<'kv> {
 
     /// Opens log file and replays entire log from the beginning.
     pub fn open(path: &Path) -> Result<KvStore> {
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(path);
-        let reader = BufReader::new(file?);
-        let store: Result<Vec<Entry>> = serde_json::from_reader(reader).map_err(KvsError::from);
+        let file = KvStore::get_file_permissions(
+            Permissions::NotAllowed,
+            Permissions::Allowed,
+        )
+        .open(TEST_FILE_PATH)?;
+        let reader = BufReader::new(file);
+        let store: Result<Vec<Entry>> =
+            serde_json::from_reader(reader).map_err(KvsError::from);
         match store {
             Ok(entries) => Ok(KvStore {
                 store: entries,
@@ -92,14 +94,8 @@ impl<'kv> KvStore<'kv> {
     /// ```
     ///
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(self.path.clone())?;
-        self.store.push(Entry { key, value });
-
-        serde_json::to_writer(file, &self.store).map_err(|err| KvsError::from(err))
+        self.store.push(Entry::Set(key, value));
+        self.write_store_to_file()
     }
 
     /// Retrieves a value from the store.
@@ -112,12 +108,19 @@ impl<'kv> KvStore<'kv> {
     /// println!("Her name is {}", name); // => "Her name is Caroline"
     /// ```
     pub fn get(&self, key: String) -> Result<Option<String>> {
-        Ok(self
-            .store
-            .iter()
-            .filter(|entry| entry.key == key)
-            .last()
-            .map(|entry| entry.value.clone()))
+        let mut final_state: HashMap<String, String> = HashMap::new();
+        self.store.iter().for_each(|entry| match entry {
+            Entry::Set(key, value) => {
+                final_state.insert(key.to_string(), value.to_string());
+            }
+            Entry::Rm(key) => {
+                final_state.remove(key);
+            }
+            _ => {
+                unreachable!();
+            }
+        });
+        Ok(final_state.get(&key).cloned())
     }
 
     /// Removes the given key from the store.
@@ -128,8 +131,36 @@ impl<'kv> KvStore<'kv> {
     /// store.remove(String::from("album_name"));
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
-        self.store.retain(|entry| entry.key != key);
-        Ok(())
+        self.store.push(Entry::Rm(key));
+        self.write_store_to_file()
+    }
+
+    fn open_file(
+        &self,
+        write_permission: Permissions,
+        read_permission: Permissions,
+    ) -> Result<File> {
+        KvStore::get_file_permissions(write_permission, read_permission)
+            .open(self.path.clone())
+            .map_err(KvsError::from)
+    }
+
+    fn get_file_permissions(
+        write_permission: Permissions,
+        read_permission: Permissions,
+    ) -> OpenOptions {
+        OpenOptions::new()
+            .create(true)
+            .append(!write_permission.is_allowed())
+            .write(write_permission.is_allowed())
+            .read(read_permission.is_allowed())
+            .to_owned()
+    }
+
+    fn write_store_to_file(&self) -> Result<()> {
+        let file =
+            self.open_file(Permissions::Allowed, Permissions::Allowed)?;
+        serde_json::to_writer(file, &self.store).map_err(KvsError::from)
     }
 }
 
