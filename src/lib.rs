@@ -14,76 +14,57 @@
 #[macro_use]
 extern crate failure;
 extern crate serde;
-use crate::store::{Entry, Permissions};
+use crate::store::{
+    BufReaderWithPosition, BufWriterWithPosition, Entry, Permissions,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::BufReader;
-use std::path::Path;
+use std::ffi::OsString;
+use std::fs::{read_dir, File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
 pub use store::{KvsError, Result};
 
 /// This is a placeholder for the current location of the
 /// log file. Eventually, there should be a config or
 /// environment variable to set this.
-pub static TEST_FILE_PATH: &str = "/home/reese/src/kvs/test.log";
+pub static TEST_FILE_PATH: &str = "/home/reese/src/kvs/fake_log_dir";
+
 /// Getter for the default log file path.
-pub fn default_path() -> &'static Path {
-    Path::new(TEST_FILE_PATH)
+pub fn default_path() -> PathBuf {
+    PathBuf::from(TEST_FILE_PATH)
 }
 
 /// This struct serves as the main interface for storing and retrieving
 /// data from the store. As of right now, it only stores things in-memory,
 /// but this will be changed in coming updates.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct KvStore<'store> {
-    store: Vec<Entry>,
-    /// The path of the log file on disk.
-    #[serde(skip, default = "default_path")]
-    pub path: &'store Path,
+#[derive(Debug)]
+pub struct KvStore {
+    dir: PathBuf,
+    store: HashMap<String, String>,
+    /// The paths of all files in the log.
+    pub paths: Vec<PathBuf>,
+    reader: BufReaderWithPosition,
+    writer: BufWriterWithPosition,
 }
 
-impl<'kv> KvStore<'kv> {
-    /// Creates a new store with no keys or values.
-    /// ```rust
-    /// use kvs::KvStore;
-    /// let mut store = KvStore::new();
-    /// store.set(String::from("key"), String::from("value"));
-    /// ```
-    pub fn new() -> Self {
-        KvStore::new_with_path(Path::new(TEST_FILE_PATH))
-    }
-
-    /// Creates an empty store with an assigned file path.
-    /// ```rust
-    /// use kvs::KvStore;
-    /// use std::path::Path;
-    /// let store = KvStore::new_with_path(Path::new("/your/path/some.log"));
-    /// assert_eq!(store.path, "/your/path/some.log")
-    /// ```
-    pub fn new_with_path(path: &'kv Path) -> Self {
-        KvStore {
-            store: vec![],
-            path,
-        }
-    }
-
+impl KvStore {
     /// Opens log file and replays entire log from the beginning.
-    pub fn open(path: &Path) -> Result<KvStore> {
-        let file = KvStore::get_file_permissions(
-            Permissions::NotAllowed,
-            Permissions::Allowed,
-        )
-        .open(TEST_FILE_PATH)?;
-        let reader = BufReader::new(file);
-        let store: Result<Vec<Entry>> =
-            serde_json::from_reader(reader).map_err(KvsError::from);
-        match store {
-            Ok(entries) => Ok(KvStore {
-                store: entries,
-                path,
-            }),
-            Err(_error) => Ok(KvStore::new_with_path(path)),
-        }
+    pub fn open<'store>(path: impl Into<PathBuf> + Clone) -> Result<KvStore> {
+        let path_buf: PathBuf = path.clone().into();
+        let directory = read_dir(path_buf.clone())?;
+        let mut log_files = directory
+            .flat_map(|dir| dir.map(|entries| entries.path()))
+            .collect::<Vec<_>>();
+        log_files.sort_unstable();
+
+        Ok(KvStore {
+            dir: path.clone().into(),
+            paths: log_files,
+            reader: BufReaderWithPosition::new(),
+            store: HashMap::new(),
+            writer: BufWriterWithPosition::new(),
+        })
     }
 
     /// Sets a new value for the given key in the store.
@@ -94,8 +75,12 @@ impl<'kv> KvStore<'kv> {
     /// ```
     ///
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        self.store.push(Entry::Set(key, value));
-        self.write_store_to_file()
+        let new_last_index: u64 = self.get_last_index()?;
+        self.writer.store_action_at_index(
+            &self.dir,
+            new_last_index,
+            &Entry::set(key, value),
+        )
     }
 
     /// Retrieves a value from the store.
@@ -109,17 +94,22 @@ impl<'kv> KvStore<'kv> {
     /// ```
     pub fn get(&self, key: String) -> Result<Option<String>> {
         let mut final_state: HashMap<String, String> = HashMap::new();
-        self.store.iter().for_each(|entry| match entry {
-            Entry::Set(key, value) => {
-                final_state.insert(key.to_string(), value.to_string());
-            }
-            Entry::Rm(key) => {
-                final_state.remove(key);
-            }
-            _ => {
-                unreachable!();
-            }
-        });
+        self.paths
+            .iter()
+            .map(|file| {
+                serde_json::from_reader(File::open(file)?)
+                    .map_err(KvsError::from)
+            })
+            .for_each(|entry| match entry {
+                Ok(Entry::Set(key, value)) => {
+                    final_state.insert(key, value);
+                }
+                Ok(Entry::Rm(key)) => {
+                    final_state.remove(key.as_str());
+                }
+                Err(error) => panic!("Error while reading from log."),
+            });
+
         Ok(final_state.get(&key).cloned())
     }
 
@@ -131,37 +121,34 @@ impl<'kv> KvStore<'kv> {
     /// store.remove(String::from("album_name"));
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
-        self.store.push(Entry::Rm(key));
-        self.write_store_to_file()
+        // TODO: Append remove file to log
+        Ok(())
     }
 
-    fn open_file(
-        &self,
-        write_permission: Permissions,
-        read_permission: Permissions,
-    ) -> Result<File> {
-        KvStore::get_file_permissions(write_permission, read_permission)
-            .open(self.path.clone())
-            .map_err(KvsError::from)
-    }
+    fn get_last_index(&self) -> Result<u64> {
+        let last_index = self.paths.last().map(|last_path| {
+            last_path
+                .file_stem()
+                .expect("File stem could not be read.")
+                .to_str()
+                .expect(
+                    "File stem could not be converted from OsString to &str.",
+                )
+                .to_string()
+                .parse::<u64>()
+                .map_err(KvsError::from)
+        });
 
-    fn get_file_permissions(
-        write_permission: Permissions,
-        read_permission: Permissions,
-    ) -> OpenOptions {
-        OpenOptions::new()
-            .create(true)
-            .append(!write_permission.is_allowed())
-            .write(write_permission.is_allowed())
-            .read(read_permission.is_allowed())
-            .to_owned()
-    }
-
-    fn write_store_to_file(&self) -> Result<()> {
-        let file =
-            self.open_file(Permissions::Allowed, Permissions::Allowed)?;
-        serde_json::to_writer(file, &self.store).map_err(KvsError::from)
+        if let Some(index) = last_index {
+            match index {
+                Ok(num) => Ok(num + 1),
+                Err(err) => Err(err),
+            }
+        } else {
+            Ok(0)
+        }
     }
 }
 
+pub mod lang;
 mod store;

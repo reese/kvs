@@ -1,5 +1,6 @@
 use failure::Fail;
 use std::convert::From;
+use std::error::Error;
 use std::io;
 use std::result;
 
@@ -22,6 +23,14 @@ impl From<io::Error> for KvsError {
 
 impl From<serde_json::Error> for KvsError {
     fn from(error: serde_json::Error) -> Self {
+        KvsError {
+            error_message: error.to_string(),
+        }
+    }
+}
+
+impl From<std::num::ParseIntError> for KvsError {
+    fn from(error: std::num::ParseIntError) -> Self {
         KvsError {
             error_message: error.to_string(),
         }

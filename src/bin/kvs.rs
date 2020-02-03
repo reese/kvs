@@ -1,6 +1,8 @@
+#[macro_use]
 extern crate kvs;
 
-use kvs::{default_path, KvStore, KvsError, Result};
+use kvs::{default_path, KvStore, Result};
+use std::process::exit;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -12,19 +14,44 @@ pub enum Config {
 
 fn main() -> Result<()> {
     let mut store = KvStore::open(default_path())?;
+    let config = Config::from_args();
+    let mut exit_code = 0;
 
-    match Config::from_args() {
-        Config::Get { key } => {
-            let string_option = store.get(key)?;
-            println!(
-                "{}",
-                string_option.ok_or(KvsError {
-                    error_message: String::from("Key not found")
-                })?
-            );
-            Ok(())
+    match config {
+        Config::Get { key } => match store.get(key.clone()) {
+            Ok(optional_string) => {
+                if let Some(found_string) = optional_string {
+                    println!(successful_get_with_result!(), key, found_string);
+                } else {
+                    eprintln!(successful_get_without_result!(), key);
+                    exit_code = 1;
+                }
+            }
+            Err(error) => {
+                eprintln!(kvs_error!(), error);
+                exit_code = 1;
+            }
+        },
+        Config::Set { key, value } => {
+            match store.set(key.clone(), value.clone()) {
+                Ok(()) => {
+                    println!(successful_set!(), key, value);
+                }
+                Err(error) => {
+                    eprintln!(kvs_error!(), error);
+                    exit_code = 1;
+                }
+            }
         }
-        Config::Set { key, value } => store.set(key, value),
-        Config::Rm { key } => store.remove(key),
-    }
+        Config::Rm { key } => match store.remove(key.clone()) {
+            Ok(()) => {
+                println!(successful_rm!(), key);
+            }
+            Err(error) => {
+                eprintln!(kvs_error!(), error);
+                exit_code = 1;
+            }
+        },
+    };
+    exit(exit_code)
 }
