@@ -20,16 +20,6 @@ use std::fs::{create_dir, read_dir, File};
 use std::path::PathBuf;
 pub use store::{KvsError, Result};
 
-/// This is a placeholder for the current location of the
-/// log file. Eventually, there should be a config or
-/// environment variable to set this.
-pub static TEST_FILE_PATH: &str = "/home/reese/src/kvs/fake_log_dir";
-
-/// Getter for the default log file path.
-pub fn default_path() -> PathBuf {
-    PathBuf::from(TEST_FILE_PATH)
-}
-
 /// This struct serves as the main interface for storing and retrieving
 /// data from the store. As of right now, it only stores things in-memory,
 /// but this will be changed in coming updates.
