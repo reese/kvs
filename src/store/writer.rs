@@ -1,7 +1,7 @@
 use crate::store::Entry;
 use crate::{KvsError, Result};
-use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::fs::{create_dir, File};
+use std::io::BufWriter;
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -24,6 +24,10 @@ impl BufWriterWithPosition {
         file_index: u64,
         entry: &Entry,
     ) -> Result<()> {
+        if !dir.exists() {
+            create_dir(dir).map_err(KvsError::from)?;
+        }
+
         self.open_file(dir, file_index)?;
         self.position = file_index;
         serde_json::to_writer(self.writer.as_ref().unwrap().get_ref(), entry)
@@ -39,7 +43,11 @@ impl BufWriterWithPosition {
         Ok(())
     }
 
-    fn get_path_for_index(&self, dir: &PathBuf, file_index: u64) -> PathBuf {
+    pub fn get_path_for_index(
+        &self,
+        dir: &PathBuf,
+        file_index: u64,
+    ) -> PathBuf {
         let mut path_buf = dir.clone();
         path_buf.push(format!("{}.log", file_index));
         path_buf

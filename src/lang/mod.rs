@@ -30,7 +30,7 @@ macro_rules! successful_rm {
 #[macro_export]
 macro_rules! successful_get_with_result {
     () => {
-        "[KVS] key={} value={}"
+        "{}"
     };
 }
 
@@ -38,7 +38,7 @@ macro_rules! successful_get_with_result {
 #[macro_export]
 macro_rules! successful_get_without_result {
     () => {
-        "[KVS] No value found for key={}"
+        "Key not found"
     };
 }
 
@@ -46,6 +46,6 @@ macro_rules! successful_get_without_result {
 #[macro_export]
 macro_rules! kvs_error {
     () => {
-        "[KVS] ERROR: {}"
+        "{}"
     };
 }

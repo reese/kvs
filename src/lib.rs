@@ -14,15 +14,10 @@
 #[macro_use]
 extern crate failure;
 extern crate serde;
-use crate::store::{
-    BufReaderWithPosition, BufWriterWithPosition, Entry, Permissions,
-};
-use serde::{Deserialize, Serialize};
+use crate::store::{BufReaderWithPosition, BufWriterWithPosition, Entry};
 use std::collections::HashMap;
-use std::ffi::OsString;
-use std::fs::{read_dir, File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+use std::fs::{create_dir, read_dir, File};
+use std::path::PathBuf;
 pub use store::{KvsError, Result};
 
 /// This is a placeholder for the current location of the
@@ -50,8 +45,12 @@ pub struct KvStore {
 
 impl KvStore {
     /// Opens log file and replays entire log from the beginning.
-    pub fn open<'store>(path: impl Into<PathBuf> + Clone) -> Result<KvStore> {
-        let path_buf: PathBuf = path.clone().into();
+    pub fn open(path: impl Into<PathBuf> + Clone) -> Result<KvStore> {
+        let mut path_buf: PathBuf = path.clone().into();
+        path_buf.push(".kvs");
+        if !path_buf.exists() {
+            create_dir(path_buf.clone()).map_err(KvsError::from)?;
+        }
         let directory = read_dir(path_buf.clone())?;
         let mut log_files = directory
             .flat_map(|dir| dir.map(|entries| entries.path()))
@@ -59,7 +58,7 @@ impl KvStore {
         log_files.sort_unstable();
 
         Ok(KvStore {
-            dir: path.clone().into(),
+            dir: path_buf.clone(),
             paths: log_files,
             reader: BufReaderWithPosition::new(),
             store: HashMap::new(),
@@ -73,14 +72,17 @@ impl KvStore {
     /// let mut store = KvStore::new();
     /// store.set(String::from("module_name"), String::from("kvs"));
     /// ```
-    ///
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         let new_last_index: u64 = self.get_last_index()?;
-        self.writer.store_action_at_index(
+        let result = self.writer.store_action_at_index(
             &self.dir,
             new_last_index,
             &Entry::set(key, value),
-        )
+        );
+        if result.is_ok() {
+            self.add_index_to_paths(new_last_index);
+        }
+        result
     }
 
     /// Retrieves a value from the store.
@@ -90,7 +92,7 @@ impl KvStore {
     /// store.set(String::from("name"), String::from("Caroline"));
     ///
     /// let name = store.get(String::from("name")).expect("Name was not found in store.");
-    /// println!("Her name is {}", name); // => "Her name is Caroline"
+    /// assert!(name == String::from("Caroline"));
     /// ```
     pub fn get(&self, key: String) -> Result<Option<String>> {
         let mut final_state: HashMap<String, String> = HashMap::new();
@@ -107,7 +109,7 @@ impl KvStore {
                 Ok(Entry::Rm(key)) => {
                     final_state.remove(key.as_str());
                 }
-                Err(error) => panic!("Error while reading from log."),
+                Err(_error) => panic!("Error while reading from log."),
             });
 
         Ok(final_state.get(&key).cloned())
@@ -121,8 +123,23 @@ impl KvStore {
     /// store.remove(String::from("album_name"));
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
-        // TODO: Append remove file to log
-        Ok(())
+        let is_existing_value = self.get(key.clone())?.is_some();
+        if !is_existing_value {
+            return Err(KvsError::from_string("Key not found"));
+        }
+
+        let new_last_index: u64 = self.get_last_index()?;
+        let result = self.writer.store_action_at_index(
+            &self.dir,
+            new_last_index,
+            &Entry::rm(key),
+        );
+
+        if result.is_ok() {
+            self.add_index_to_paths(new_last_index);
+        }
+
+        result
     }
 
     fn get_last_index(&self) -> Result<u64> {
@@ -147,6 +164,10 @@ impl KvStore {
         } else {
             Ok(0)
         }
+    }
+    fn add_index_to_paths(&mut self, new_last_index: u64) {
+        self.paths
+            .push(self.writer.get_path_for_index(&self.dir, new_last_index));
     }
 }
 

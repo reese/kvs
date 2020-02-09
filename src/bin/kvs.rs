@@ -1,7 +1,8 @@
 #[macro_use]
 extern crate kvs;
 
-use kvs::{default_path, KvStore, Result};
+use kvs::{KvStore, Result};
+use std::env::current_dir;
 use std::process::exit;
 use structopt::StructOpt;
 
@@ -13,7 +14,7 @@ pub enum Config {
 }
 
 fn main() -> Result<()> {
-    let mut store = KvStore::open(default_path())?;
+    let mut store = KvStore::open(current_dir()?)?;
     let config = Config::from_args();
     let mut exit_code = 0;
 
@@ -21,10 +22,9 @@ fn main() -> Result<()> {
         Config::Get { key } => match store.get(key.clone()) {
             Ok(optional_string) => {
                 if let Some(found_string) = optional_string {
-                    println!(successful_get_with_result!(), key, found_string);
+                    println!(successful_get_with_result!(), found_string);
                 } else {
-                    eprintln!(successful_get_without_result!(), key);
-                    exit_code = 1;
+                    println!(successful_get_without_result!());
                 }
             }
             Err(error) => {
@@ -34,9 +34,7 @@ fn main() -> Result<()> {
         },
         Config::Set { key, value } => {
             match store.set(key.clone(), value.clone()) {
-                Ok(()) => {
-                    println!(successful_set!(), key, value);
-                }
+                Ok(()) => {}
                 Err(error) => {
                     eprintln!(kvs_error!(), error);
                     exit_code = 1;
@@ -44,11 +42,9 @@ fn main() -> Result<()> {
             }
         }
         Config::Rm { key } => match store.remove(key.clone()) {
-            Ok(()) => {
-                println!(successful_rm!(), key);
-            }
+            Ok(()) => {}
             Err(error) => {
-                eprintln!(kvs_error!(), error);
+                println!(kvs_error!(), error);
                 exit_code = 1;
             }
         },

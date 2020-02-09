@@ -1,15 +1,14 @@
 use failure::Fail;
 use std::convert::From;
-use std::error::Error;
 use std::io;
 use std::result;
 
 /// # KvsError
 /// This error is the user-facing error type for the KVS tool.
 #[derive(Fail, Debug)]
-#[fail(display = "KVS encountered the following error: {}", error_message)]
+#[fail(display = "{}", error_message)]
 pub struct KvsError {
-    /// The error message dummy
+    /// The original error message as a string
     pub error_message: String,
 }
 
@@ -33,6 +32,23 @@ impl From<std::num::ParseIntError> for KvsError {
     fn from(error: std::num::ParseIntError) -> Self {
         KvsError {
             error_message: error.to_string(),
+        }
+    }
+}
+
+impl KvsError {
+    /// Builds a `KvsError` from some string-like value.
+    ///
+    /// ## Usage
+    /// ```
+    /// use kvs::KvsError;
+    /// let error = KvsError::from_string("Key not found.");
+    /// let other_error = KvsError::from_string(String::from("This also works"));
+    /// # assert_eq!(error.error_message, String::from("Key not found."));
+    /// ```
+    pub fn from_string(error_message: impl Into<String>) -> Self {
+        KvsError {
+            error_message: error_message.into(),
         }
     }
 }
