@@ -19,7 +19,7 @@ use crate::store::{
     BufWriterWithPosition, Entry,
 };
 use std::collections::HashMap;
-use std::fs::{create_dir, read, read_dir, File, ReadDir};
+use std::fs::create_dir;
 use std::path::PathBuf;
 pub use store::{KvsError, ParsePath, Result};
 

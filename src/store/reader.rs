@@ -1,7 +1,7 @@
-use crate::store::{get_directory_files_ascending, Entry, Result};
+use crate::store::{Entry, Result};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io;
+
 use std::io::BufReader;
 use std::path::PathBuf;
 

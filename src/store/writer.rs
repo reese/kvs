@@ -1,6 +1,6 @@
 use crate::store::{get_directory_files_ascending, Entry};
 use crate::{KvsError, ParsePath, Result};
-use std::fs::{create_dir, read_dir, File};
+use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
@@ -13,8 +13,7 @@ pub struct BufWriterWithPosition {
 
 impl BufWriterWithPosition {
     pub fn new(directory: PathBuf) -> Result<Self> {
-        let mut directory_files =
-            get_directory_files_ascending(directory.clone())?;
+        let directory_files = get_directory_files_ascending(directory.clone())?;
 
         let final_index: Option<Result<u64>> = directory_files
             .last()
