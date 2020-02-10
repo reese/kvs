@@ -14,45 +14,38 @@
 #[macro_use]
 extern crate failure;
 extern crate serde;
-use crate::store::{BufReaderWithPosition, BufWriterWithPosition, Entry};
+use crate::store::{
+    get_directory_files_ascending, BufReaderWithPosition,
+    BufWriterWithPosition, Entry,
+};
 use std::collections::HashMap;
-use std::fs::{create_dir, read_dir, File};
+use std::fs::{create_dir, read, read_dir, File, ReadDir};
 use std::path::PathBuf;
-pub use store::{KvsError, Result};
+pub use store::{KvsError, ParsePath, Result};
 
 /// This struct serves as the main interface for storing and retrieving
 /// data from the store. As of right now, it only stores things in-memory,
 /// but this will be changed in coming updates.
 #[derive(Debug)]
 pub struct KvStore {
-    dir: PathBuf,
-    store: HashMap<String, String>,
-    /// The paths of all files in the log.
-    pub paths: Vec<PathBuf>,
+    store: HashMap<String, u64>,
     reader: BufReaderWithPosition,
     writer: BufWriterWithPosition,
 }
 
 impl KvStore {
-    /// Opens log file and replays entire log from the beginning.
+    /// Initializes `KvStore` readers and writers.
     pub fn open(path: impl Into<PathBuf> + Clone) -> Result<KvStore> {
         let mut path_buf: PathBuf = path.clone().into();
         path_buf.push(".kvs");
         if !path_buf.exists() {
             create_dir(path_buf.clone()).map_err(KvsError::from)?;
         }
-        let directory = read_dir(path_buf.clone())?;
-        let mut log_files = directory
-            .flat_map(|dir| dir.map(|entries| entries.path()))
-            .collect::<Vec<_>>();
-        log_files.sort_unstable();
 
         Ok(KvStore {
-            dir: path_buf.clone(),
-            paths: log_files,
-            reader: BufReaderWithPosition::new(),
+            reader: BufReaderWithPosition::new(path_buf.clone()),
             store: HashMap::new(),
-            writer: BufWriterWithPosition::new(),
+            writer: BufWriterWithPosition::new(path_buf)?,
         })
     }
 
@@ -63,16 +56,14 @@ impl KvStore {
     /// store.set(String::from("module_name"), String::from("kvs"));
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let new_last_index: u64 = self.get_last_index()?;
-        let result = self.writer.store_action_at_index(
-            &self.dir,
-            new_last_index,
-            &Entry::set(key, value),
-        );
-        if result.is_ok() {
-            self.add_index_to_paths(new_last_index);
+        let result = self.writer.append_to_log(&Entry::set(key.clone(), value));
+        match result.clone() {
+            Ok(new_last_index) => {
+                self.update_index(new_last_index, key);
+                Ok(())
+            }
+            Err(error) => Err(error),
         }
-        result
     }
 
     /// Retrieves a value from the store.
@@ -84,25 +75,40 @@ impl KvStore {
     /// let name = store.get(String::from("name")).expect("Name was not found in store.");
     /// assert!(name == String::from("Caroline"));
     /// ```
-    pub fn get(&self, key: String) -> Result<Option<String>> {
-        let mut final_state: HashMap<String, String> = HashMap::new();
-        self.paths
-            .iter()
-            .map(|file| {
-                serde_json::from_reader(File::open(file)?)
-                    .map_err(KvsError::from)
-            })
-            .for_each(|entry| match entry {
-                Ok(Entry::Set(key, value)) => {
-                    final_state.insert(key, value);
-                }
-                Ok(Entry::Rm(key)) => {
-                    final_state.remove(key.as_str());
-                }
-                Err(_error) => panic!("Error while reading from log."),
-            });
-
-        Ok(final_state.get(&key).cloned())
+    pub fn get(&mut self, key: String) -> Result<Option<String>> {
+        let index = self.store.get(key.as_str());
+        if let Some(retrieved_value) = index {
+            match self.reader.read_index(*retrieved_value) {
+                Ok(Entry::Set(value, ..)) => Ok(Some(value)),
+                Ok(Entry::Rm(..)) => Ok(None),
+                Err(error) => Err(KvsError::from(error)),
+            }
+        } else {
+            let entry =
+                get_directory_files_ascending(self.reader.get_directory())?
+                    .iter()
+                    .find(|path| {
+                        self.reader
+                            .read_index(
+                                path.parse_number_from_path().expect(
+                                    "Could not parse index from file name",
+                                ),
+                            )
+                            .unwrap()
+                            .get_key()
+                            .eq(&key)
+                    })
+                    .map(|path| {
+                        self.reader.read_index(path.parse_number_from_path()?)
+                    })
+                    .or_else(|| None);
+            match entry {
+                Some(Ok(Entry::Rm(..))) => Ok(None),
+                Some(Ok(Entry::Set(value, ..))) => Ok(Some(value)),
+                Some(Err(error)) => Err(error),
+                _ => Ok(None),
+            }
+        }
     }
 
     /// Removes the given key from the store.
@@ -117,47 +123,19 @@ impl KvStore {
         if !is_existing_value {
             return Err(KvsError::from_string("Key not found"));
         }
+        let result = self.writer.append_to_log(&Entry::rm(key.clone()));
 
-        let new_last_index: u64 = self.get_last_index()?;
-        let result = self.writer.store_action_at_index(
-            &self.dir,
-            new_last_index,
-            &Entry::rm(key),
-        );
-
-        if result.is_ok() {
-            self.add_index_to_paths(new_last_index);
-        }
-
-        result
-    }
-
-    fn get_last_index(&self) -> Result<u64> {
-        let last_index = self.paths.last().map(|last_path| {
-            last_path
-                .file_stem()
-                .expect("File stem could not be read.")
-                .to_str()
-                .expect(
-                    "File stem could not be converted from OsString to &str.",
-                )
-                .to_string()
-                .parse::<u64>()
-                .map_err(KvsError::from)
-        });
-
-        if let Some(index) = last_index {
-            match index {
-                Ok(num) => Ok(num + 1),
-                Err(err) => Err(err),
+        match result.clone() {
+            Ok(new_last_index) => {
+                self.update_index(new_last_index, key);
+                Ok(())
             }
-        } else {
-            Ok(0)
+            Err(error) => Err(error),
         }
     }
-    fn add_index_to_paths(&mut self, new_last_index: u64) {
-        self.paths
-            .push(self.writer.get_path_for_index(&self.dir, new_last_index));
+
+    fn update_index(&mut self, new_last_index: u64, key: String) {
+        self.store.insert(key, new_last_index);
     }
 }
 

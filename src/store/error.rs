@@ -5,7 +5,7 @@ use std::result;
 
 /// # KvsError
 /// This error is the user-facing error type for the KVS tool.
-#[derive(Fail, Debug)]
+#[derive(Clone, Debug, Fail)]
 #[fail(display = "{}", error_message)]
 pub struct KvsError {
     /// The original error message as a string
