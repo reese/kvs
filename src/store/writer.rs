@@ -8,7 +8,7 @@ use std::path::PathBuf;
 pub struct BufWriterWithPosition {
     directory: PathBuf,
     writer: Option<BufWriter<File>>,
-    last_index: u64,
+    next_index: u64,
 }
 
 impl BufWriterWithPosition {
@@ -22,18 +22,17 @@ impl BufWriterWithPosition {
         Ok(BufWriterWithPosition {
             directory,
             writer: None,
-            last_index: final_index.unwrap_or(Ok(0))?,
+            next_index: final_index.map(|i| i.unwrap() + 1).unwrap_or(0),
         })
     }
 
     pub fn append_to_log(&mut self, entry: &Entry) -> Result<u64> {
-        let file_index = self.last_index + 1;
+        let file_index = self.next_index;
         self.open_file(file_index)?;
-        self.last_index = file_index;
         serde_json::to_writer(self.writer.as_ref().unwrap().get_ref(), entry)
             .map_err(KvsError::from)?;
 
-        self.last_index += 1;
+        self.next_index += 1;
         Ok(file_index)
     }
 
