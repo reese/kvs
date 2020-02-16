@@ -1,8 +1,7 @@
-use crate::store::{get_directory_files_descending, Entry, Position};
-use crate::{KvsError, ParsePath, Result};
+use crate::Result;
 use std::fs::File;
 use std::io;
-use std::io::{BufWriter, Error, Seek, Write};
+use std::io::{BufWriter, Seek, Write};
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -17,8 +16,6 @@ impl<W: Write + Seek> BufWriterWithPosition<W> {
         directory: PathBuf,
         next_command_position: u64,
     ) -> Result<BufWriterWithPosition<File>> {
-        let directory_files =
-            get_directory_files_descending(directory.clone())?;
         let mut new_log_path = directory.clone();
         new_log_path.push(format!("{}.log", next_command_position));
 
@@ -27,12 +24,6 @@ impl<W: Write + Seek> BufWriterWithPosition<W> {
             writer: BufWriter::new(File::create(new_log_path)?),
             position: 0,
         })
-    }
-
-    fn get_path_for_index(&self, file_index: u64) -> PathBuf {
-        let mut path_buf = self.directory.clone();
-        path_buf.push(format!("{}.log", file_index));
-        path_buf
     }
 }
 

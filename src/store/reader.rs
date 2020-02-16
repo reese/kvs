@@ -1,13 +1,6 @@
-use crate::store::{Entry, Result};
-use std::collections::HashMap;
-use std::fs::{read, File};
-
-use crate::KvsError;
-use std::borrow::BorrowMut;
+use crate::store::Result;
 use std::io;
 use std::io::{BufRead, BufReader, Error, Read, Seek, SeekFrom};
-use std::ops::Deref;
-use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct BufReaderWithPosition<R: Read> {

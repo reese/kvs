@@ -16,17 +16,16 @@
 extern crate failure;
 extern crate serde;
 use crate::store::{
-    get_directory_files_descending, BufReaderWithPosition,
-    BufWriterWithPosition, Entry, Position,
+    BufReaderWithPosition, BufWriterWithPosition, Entry, Position,
 };
-use serde_json::map::IntoIter;
+
 use serde_json::Deserializer;
 use std::collections::{BTreeMap, HashMap};
-use std::fs::{create_dir, File, ReadDir};
+use std::fs::{create_dir, File};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::Deref;
+
 use std::path::PathBuf;
-use std::process::Command;
+
 pub use store::{KvsError, ParsePath, Result};
 
 /// This struct serves as the main interface for storing and retrieving
@@ -62,7 +61,7 @@ impl KvStore {
                     File::open(path.clone()).unwrap(),
                 )
                 .unwrap();
-                load_entry(path.clone(), &mut store, &mut buffer);
+                load_entry(path.clone(), &mut store, &mut buffer).unwrap();
                 reader_map
                     .insert(path.parse_number_from_path().unwrap(), buffer);
             });
@@ -166,7 +165,7 @@ impl KvStore {
             self.next_command_position,
         )?;
         let start_position = self.writer.position;
-        serde_json::to_writer(&mut self.writer, &new_entry);
+        serde_json::to_writer(&mut self.writer, &new_entry)?;
         self.writer.flush()?;
         match new_entry {
             Entry::Set(key, ..) => {
