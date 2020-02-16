@@ -16,14 +16,17 @@
 extern crate failure;
 extern crate serde;
 use crate::store::{
-    get_directory_files_ascending, BufReaderWithPosition,
-    BufWriterWithPosition, Entry,
+    get_directory_files_descending, BufReaderWithPosition,
+    BufWriterWithPosition, Entry, Position,
 };
+use serde_json::map::IntoIter;
+use serde_json::Deserializer;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{create_dir, File, ReadDir};
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::process::Command;
 pub use store::{KvsError, ParsePath, Result};
 
 /// This struct serves as the main interface for storing and retrieving
@@ -33,9 +36,10 @@ pub use store::{KvsError, ParsePath, Result};
 #[derive(Debug)]
 pub struct KvStore {
     directory: PathBuf,
-    store: BTreeMap<String, u64>,
+    store: BTreeMap<String, Position>,
     reader_map: HashMap<u64, BufReaderWithPosition<File>>,
-    writer: BufWriterWithPosition,
+    writer: BufWriterWithPosition<File>,
+    next_command_position: u64,
 }
 
 impl KvStore {
@@ -54,18 +58,27 @@ impl KvStore {
             .read_dir()?
             .map(|dir_entry| dir_entry.unwrap().path())
             .for_each(|path| {
-                reader_map.insert(
-                    path.parse_number_from_path().unwrap(),
-                    BufReaderWithPosition::new(File::open(path).unwrap())
-                        .unwrap(),
-                );
+                let mut buffer = BufReaderWithPosition::new(
+                    File::open(path.clone()).unwrap(),
+                )
+                .unwrap();
+                load_entry(path.clone(), &mut store, &mut buffer);
+                reader_map
+                    .insert(path.parse_number_from_path().unwrap(), buffer);
             });
+
+        let next_command_position =
+            reader_map.keys().max().map(|pos| pos + 1).unwrap_or(0);
 
         Ok(KvStore {
             directory: path_buf.clone(),
             reader_map,
             store,
-            writer: BufWriterWithPosition::new(path_buf)?,
+            writer: BufWriterWithPosition::<File>::new(
+                path_buf,
+                next_command_position,
+            )?,
+            next_command_position,
         })
     }
 
@@ -77,14 +90,7 @@ impl KvStore {
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         let new_entry = Entry::set(key.clone(), value.clone());
-        let result = self.writer.append_to_log(&new_entry);
-        match result.clone() {
-            Ok(new_last_index) => {
-                self.store.insert(key, new_last_index);
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+        self.append_entry(new_entry)
     }
 
     /// Retrieves a value from the store.
@@ -101,34 +107,11 @@ impl KvStore {
         if let Some(value) = index {
             match self.read_index(*value) {
                 Ok(Entry::Rm(..)) => Ok(None),
-                Ok(Entry::Set(value, ..)) => Ok(Some(value.parse().unwrap())),
+                Ok(Entry::Set(.., value)) => Ok(Some(value.parse().unwrap())),
                 Err(error) => Err(error),
             }
         } else {
-            let entry = get_directory_files_ascending(self.directory.clone())?
-                .iter()
-                .find(|path| {
-                    self.read_index(
-                        path.parse_number_from_path()
-                            .expect("Could not parse index from file name"),
-                    )
-                    .unwrap()
-                    .get_key()
-                    .eq(&key)
-                })
-                .map(|path| {
-                    let index_num = path
-                        .parse_number_from_path()
-                        .expect("Could not parse number from file stem");
-                    self.read_index(index_num.clone())
-                        .expect("Could not read item at index")
-                })
-                .or_else(|| None);
-            match entry {
-                Some(Entry::Rm(..)) => Ok(None),
-                Some(Entry::Set(value, ..)) => Ok(Some(value)),
-                _ => Ok(None),
-            }
+            Ok(None)
         }
     }
 
@@ -142,33 +125,28 @@ impl KvStore {
     pub fn remove(&mut self, key: String) -> Result<()> {
         let is_existing_value = self.get(key.clone())?.is_some();
         if !is_existing_value {
-            return Err(KvsError::from_string("Key not found"));
-        }
-        let entry = Entry::rm(key.clone());
-        let result = self.writer.append_to_log(&entry);
-
-        match result.clone() {
-            Ok(new_last_index) => {
-                self.store.insert(key, new_last_index);
-                Ok(())
-            }
-            Err(error) => Err(error),
+            Err(KvsError::from_string("Key not found"))
+        } else {
+            let entry = Entry::rm(key.clone());
+            self.append_entry(entry)
         }
     }
 
-    fn read_index(&mut self, index: u64) -> Result<Entry> {
-        let reader_option = self.reader_map.get_mut(&index);
+    fn read_index(&mut self, index: Position) -> Result<Entry> {
+        let reader_option = self.reader_map.get_mut(&index.file_index);
         if reader_option.is_some() {
-            serde_json::from_reader(reader_option.unwrap())
-                .map_err(KvsError::from)
+            let buffer = reader_option.unwrap();
+            buffer.seek(SeekFrom::Start(index.start_position))?;
+            buffer.take(index.length);
+            serde_json::from_reader(buffer).map_err(KvsError::from)
         } else {
-            if !self.get_path_for_index(index).exists() {
+            if !self.get_path_for_index(index.file_index).exists() {
                 Err(KvsError::from_string("No file exists at the given index."))
             } else {
                 self.reader_map.insert(
-                    index,
+                    index.file_index,
                     BufReaderWithPosition::new(File::open(
-                        self.get_path_for_index(index),
+                        self.get_path_for_index(index.file_index),
                     )?)?,
                 );
                 self.read_index(index)
@@ -181,6 +159,64 @@ impl KvStore {
         directory.push(format!("{}.log", index));
         directory
     }
+
+    fn append_entry(&mut self, new_entry: Entry) -> Result<()> {
+        self.writer = BufWriterWithPosition::<File>::new(
+            self.directory.clone(),
+            self.next_command_position,
+        )?;
+        let start_position = self.writer.position;
+        serde_json::to_writer(&mut self.writer, &new_entry);
+        self.writer.flush()?;
+        match new_entry {
+            Entry::Set(key, ..) => {
+                self.store.insert(
+                    key,
+                    (
+                        self.next_command_position,
+                        start_position,
+                        self.writer.position,
+                    )
+                        .into(),
+                );
+            }
+            Entry::Rm(key) => {
+                self.store.remove(&key);
+            }
+        }
+        self.next_command_position += 1;
+        Ok(())
+    }
+}
+
+fn load_entry(
+    entry_path: PathBuf,
+    store: &mut BTreeMap<String, Position>,
+    reader: &mut BufReaderWithPosition<File>,
+) -> Result<()> {
+    let mut start_position = reader.seek(SeekFrom::Start(0))?;
+    let mut stream = Deserializer::from_reader(reader).into_iter::<Entry>();
+    while let Some(entry) = stream.next() {
+        let end_position = stream.byte_offset();
+        match entry.expect("Entry could not be deserialized.") {
+            Entry::Set(key, ..) => {
+                store.insert(
+                    key,
+                    (
+                        entry_path.parse_number_from_path()?,
+                        start_position,
+                        end_position as u64,
+                    )
+                        .into(),
+                );
+            }
+            Entry::Rm(key) => {
+                store.remove(&key);
+            }
+        }
+        start_position = end_position as u64;
+    }
+    Ok(())
 }
 
 pub mod lang;
