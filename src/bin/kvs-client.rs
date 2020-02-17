@@ -7,7 +7,11 @@ use std::process::exit;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
-pub enum Config {
+#[structopt(
+    name = "kvs-client",
+    about = "The internal client implementation of KvStore, accessed via the command line"
+)]
+enum KvsClient {
     Get { key: String },
     Set { key: String, value: String },
     Rm { key: String },
@@ -15,11 +19,11 @@ pub enum Config {
 
 fn main() -> Result<()> {
     let mut store = KvStore::open(current_dir()?)?;
-    let config = Config::from_args();
+    let config = KvsClient::from_args();
     let mut exit_code = 0;
 
     match config {
-        Config::Get { key } => match store.get(key) {
+        KvsClient::Get { key } => match store.get(key) {
             Ok(optional_string) => {
                 if let Some(found_string) = optional_string {
                     println!(successful_get_with_result!(), found_string);
@@ -32,14 +36,14 @@ fn main() -> Result<()> {
                 exit_code = 1;
             }
         },
-        Config::Set { key, value } => match store.set(key, value) {
+        KvsClient::Set { key, value } => match store.set(key, value) {
             Ok(()) => {}
             Err(error) => {
                 eprintln!(kvs_error!(), error);
                 exit_code = 1;
             }
         },
-        Config::Rm { key } => match store.remove(key) {
+        KvsClient::Rm { key } => match store.remove(key) {
             Ok(()) => {}
             Err(error) => {
                 println!(kvs_error!(), error);
