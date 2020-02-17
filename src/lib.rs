@@ -77,7 +77,7 @@ impl KvStore {
             directory: path_buf.clone(),
             reader_map,
             store,
-            writer: BufWriterWithPosition::<File>::new(
+            writer: BufWriterWithPosition::<File>::create(
                 path_buf,
                 next_command_position,
             )?,
@@ -113,7 +113,7 @@ impl KvStore {
         if let Some(position) = index {
             // This clone is to get around a mutable borrow reservation conflict.
             // For more info, see the tracking issue: https://github.com/rust-lang/rust/issues/59159
-            let cloned_position = position.clone();
+            let cloned_position = *position;
             match self.read_index(cloned_position) {
                 Ok(Entry::Rm(..)) => Ok(None),
                 Ok(Entry::Set(.., value)) => Ok(Some(value.parse().unwrap())),
@@ -145,23 +145,20 @@ impl KvStore {
 
     fn read_index(&mut self, index: Position) -> Result<Entry> {
         let reader_option = self.reader_map.get_mut(&index.file_index);
-        if reader_option.is_some() {
-            let buffer = reader_option.unwrap();
+        if let Some(buffer) = reader_option {
             buffer.seek(SeekFrom::Start(index.start_position))?;
             buffer.take(index.length);
             serde_json::from_reader(buffer).map_err(KvsError::from)
+        } else if !self.get_path_for_index(index.file_index).exists() {
+            Err(KvsError::from_string("No file exists at the given index."))
         } else {
-            if !self.get_path_for_index(index.file_index).exists() {
-                Err(KvsError::from_string("No file exists at the given index."))
-            } else {
-                self.reader_map.insert(
-                    index.file_index,
-                    BufReaderWithPosition::new(File::open(
-                        self.get_path_for_index(index.file_index),
-                    )?)?,
-                );
-                self.read_index(index)
-            }
+            self.reader_map.insert(
+                index.file_index,
+                BufReaderWithPosition::new(File::open(
+                    self.get_path_for_index(index.file_index),
+                )?)?,
+            );
+            self.read_index(index)
         }
     }
 
@@ -194,7 +191,7 @@ impl KvStore {
     }
 
     fn append_entry(&mut self, new_entry: Entry) -> Result<()> {
-        self.writer = BufWriterWithPosition::<File>::new(
+        self.writer = BufWriterWithPosition::<File>::create(
             self.directory.clone(),
             self.next_command_position,
         )?;

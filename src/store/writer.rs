@@ -12,7 +12,7 @@ pub struct BufWriterWithPosition<W: Write + Seek> {
 }
 
 impl<W: Write + Seek> BufWriterWithPosition<W> {
-    pub fn new(
+    pub fn create(
         directory: PathBuf,
         next_command_position: u64,
     ) -> Result<BufWriterWithPosition<File>> {
