@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     let mut exit_code = 0;
 
     match config {
-        Config::Get { key } => match store.get(key.clone()) {
+        Config::Get { key } => match store.get(key) {
             Ok(optional_string) => {
                 if let Some(found_string) = optional_string {
                     println!(successful_get_with_result!(), found_string);
@@ -32,16 +32,14 @@ fn main() -> Result<()> {
                 exit_code = 1;
             }
         },
-        Config::Set { key, value } => {
-            match store.set(key.clone(), value.clone()) {
-                Ok(()) => {}
-                Err(error) => {
-                    eprintln!(kvs_error!(), error);
-                    exit_code = 1;
-                }
+        Config::Set { key, value } => match store.set(key, value) {
+            Ok(()) => {}
+            Err(error) => {
+                eprintln!(kvs_error!(), error);
+                exit_code = 1;
             }
-        }
-        Config::Rm { key } => match store.remove(key.clone()) {
+        },
+        Config::Rm { key } => match store.remove(key) {
             Ok(()) => {}
             Err(error) => {
                 println!(kvs_error!(), error);
