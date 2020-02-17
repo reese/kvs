@@ -105,14 +105,14 @@ fn client_cli_invalid_rm() {
 
     Command::cargo_bin("kvs-client")
         .unwrap()
-        .args(&["rm", "key", "--addr", "invalid-addr"])
+        .args(&["--addr", "invalid-addr", "rm", "key"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
 
     Command::cargo_bin("kvs-client")
         .unwrap()
-        .args(&["rm", "key", "--unknown-flag"])
+        .args(&["--invalid-flag", "rm", "key"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
@@ -167,6 +167,7 @@ fn cli_log_configuration() {
 
     let content = fs::read_to_string(&stderr_path)
         .expect("unable to read from stderr file");
+    assert_eq!(content, String::from(""));
     assert!(content.contains(env!("CARGO_PKG_VERSION")));
     assert!(content.contains("kvs"));
     assert!(content.contains("127.0.0.1:4001"));

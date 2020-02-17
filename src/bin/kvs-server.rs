@@ -1,7 +1,10 @@
 #[macro_use]
 extern crate kvs;
+#[macro_use]
+extern crate log;
+extern crate stderrlog;
 
-use kvs::{KvStore, KvsEngine, Result};
+use kvs::{KvStore, KvsEngine, Options, Result};
 use std::env::current_dir;
 use std::net::SocketAddr;
 use std::process::exit;
@@ -13,16 +16,10 @@ use structopt::StructOpt;
     about = "The redis server implementation for accessing the store over a network."
 )]
 struct KvsServer {
-    #[structopt(long = "engine")]
-    engine: String,
-    #[structopt(
-        long = "addr",
-        help = "Sets the server address",
-        parse(try_from_str)
-    )]
-    socket: SocketAddr,
     #[structopt(subcommand)]
     command: Command,
+    #[structopt(flatten)]
+    options: Options,
 }
 
 #[derive(StructOpt, Debug)]
@@ -33,9 +30,19 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let mut store = KvStore::open(current_dir()?)?;
+    stderrlog::new().module(module_path!()).init().unwrap();
     let config = KvsServer::from_args();
+
+    warn!("KvsServer version: {}", env!("CARGO_PKG_VERSION"));
+    warn!("Listening on port: {:?}", config.options.socket);
+    warn!("Running on engine: {}", config.options.engine);
+
+    let mut store = KvStore::open(current_dir()?)?;
     let mut exit_code = 0;
+
+    match config.command {
+        _ => warn!("some shit going on"),
+    }
 
     exit(exit_code)
 }

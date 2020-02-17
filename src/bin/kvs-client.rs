@@ -1,7 +1,10 @@
 #[macro_use]
 extern crate kvs;
+#[macro_use]
+extern crate log;
+extern crate stderrlog;
 
-use kvs::{KvStore, KvsEngine, Result};
+use kvs::{KvStore, KvsEngine, Options, Result};
 use std::env::current_dir;
 use std::net::SocketAddr;
 use std::process::exit;
@@ -15,46 +18,25 @@ use structopt::StructOpt;
 struct KvsClient {
     #[structopt(subcommand)]
     command: Command,
+    #[structopt(flatten)]
+    options: Options,
 }
 
 #[derive(StructOpt, Debug)]
 enum Command {
-    Get {
-        key: String,
-        #[structopt(
-            long = "addr",
-            help = "Sets the server address",
-            default_value = "127.0.0.1:4000",
-            parse(try_from_str)
-        )]
-        socket: SocketAddr,
-    },
-    Set {
-        key: String,
-        value: String,
-        #[structopt(
-            long = "addr",
-            help = "Sets the server address",
-            default_value = "127.0.0.1:4000",
-            parse(try_from_str)
-        )]
-        socket: SocketAddr,
-    },
-    Rm {
-        key: String,
-        #[structopt(
-            long = "addr",
-            help = "Sets the server address",
-            default_value = "127.0.0.1:4000",
-            parse(try_from_str)
-        )]
-        socket: SocketAddr,
-    },
+    Get { key: String },
+    Set { key: String, value: String },
+    Rm { key: String },
 }
 
 fn main() -> Result<()> {
-    let mut store = KvStore::open(current_dir()?)?;
+    stderrlog::new().init().unwrap();
     let config = KvsClient::from_args();
+    info!("KvsClient version: {}", env!("CARGO_PKG_VERSION"));
+    info!("Listening on port: {}", config.options.socket);
+    info!("Running on engine: {}", config.options.engine);
+
+    let mut store = KvStore::open(current_dir()?)?;
     let mut exit_code = 0;
 
     match config.command {
