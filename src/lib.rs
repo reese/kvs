@@ -10,6 +10,7 @@
 //!
 //! TODO: Benchmark different serialization formats.
 //! TODO: Use benchmark tests to compare similar tools.
+//! TODO: Benchmarks should also be added to Github Action.
 //!
 
 #[macro_use]
@@ -26,7 +27,10 @@ use std::io::{Read, Seek, SeekFrom, Write};
 
 use std::path::PathBuf;
 
+use std::fs;
 pub use store::{KvsError, ParsePath, Result};
+
+const COMPACTION_MINIMUM: u64 = 500;
 
 /// This struct serves as the main interface for storing and retrieving
 /// data from the store. It uses a log-based file structure to store
@@ -39,6 +43,7 @@ pub struct KvStore {
     reader_map: HashMap<u64, BufReaderWithPosition<File>>,
     writer: BufWriterWithPosition<File>,
     next_command_position: u64,
+    compaction_counter: u64,
 }
 
 impl KvStore {
@@ -53,9 +58,8 @@ impl KvStore {
         let mut store = BTreeMap::new();
         let mut reader_map = HashMap::new();
 
-        path_buf
-            .read_dir()?
-            .map(|dir_entry| dir_entry.unwrap().path())
+        get_descending_files_in_directory(path_buf.clone())
+            .iter()
             .for_each(|path| {
                 let mut buffer = BufReaderWithPosition::new(
                     File::open(path.clone()).unwrap(),
@@ -67,7 +71,7 @@ impl KvStore {
             });
 
         let next_command_position =
-            reader_map.keys().max().map(|pos| pos + 1).unwrap_or(0);
+            reader_map.keys().max().map(|num| num + 1).unwrap_or(0);
 
         Ok(KvStore {
             directory: path_buf.clone(),
@@ -78,6 +82,7 @@ impl KvStore {
                 next_command_position,
             )?,
             next_command_position,
+            compaction_counter: 0,
         })
     }
 
@@ -103,8 +108,8 @@ impl KvStore {
     /// ```
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         let index = self.store.get(key.as_str());
-        if let Some(value) = index {
-            match self.read_index(*value) {
+        if let Some(position) = index {
+            match self.read_index(*position) {
                 Ok(Entry::Rm(..)) => Ok(None),
                 Ok(Entry::Set(.., value)) => Ok(Some(value.parse().unwrap())),
                 Err(error) => Err(error),
@@ -153,6 +158,28 @@ impl KvStore {
         }
     }
 
+    fn compact_log(&mut self) -> Result<()> {
+        let mut directory_files: Vec<PathBuf> =
+            get_descending_files_in_directory(self.directory.clone());
+        directory_files.reverse();
+
+        let mut final_keys = HashMap::new();
+        directory_files.iter().for_each(|path| {
+            let key: Entry =
+                serde_json::from_reader(File::open(path).unwrap()).unwrap();
+            if final_keys.get(key.get_key()).is_some() {
+                fs::remove_file(path).expect("Could not delete file.");
+                self.reader_map
+                    .remove(&path.parse_number_from_path().unwrap());
+            } else {
+                final_keys.insert(key.get_key().clone(), true);
+            }
+        });
+        self.compaction_counter = 0;
+
+        Ok(())
+    }
+
     fn get_path_for_index(&self, index: u64) -> PathBuf {
         let mut directory = self.directory.clone();
         directory.push(format!("{}.log", index));
@@ -184,6 +211,12 @@ impl KvStore {
             }
         }
         self.next_command_position += 1;
+        self.compaction_counter += 1;
+
+        if self.compaction_counter > COMPACTION_MINIMUM {
+            self.compact_log()?;
+        }
+
         Ok(())
     }
 }
@@ -216,6 +249,16 @@ fn load_entry(
         start_position = end_position as u64;
     }
     Ok(())
+}
+
+fn get_descending_files_in_directory(directory: PathBuf) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = directory
+        .read_dir()
+        .expect("Could not read files in directory.")
+        .map(|dir_entry| dir_entry.unwrap().path())
+        .collect();
+    files.sort_unstable_by_key(|path| path.parse_number_from_path().unwrap());
+    files
 }
 
 pub mod lang;
