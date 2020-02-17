@@ -12,7 +12,7 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run against linter and formatter
-      run: cargo clippy -- -D; cargo fmt -- --check
+      run: cargo clippy -- -D warnings; cargo fmt -- --check
     - name: Run tests
       run: cargo test --verbose
     # TODO: Run benchmarks once they exist
