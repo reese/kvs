@@ -1,6 +1,6 @@
 use crate::store::Result;
 use std::io;
-use std::io::{BufRead, BufReader, Error, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 #[derive(Debug)]
 pub struct BufReaderWithPosition<R: Read> {
