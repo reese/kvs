@@ -17,7 +17,7 @@ impl ParsePath for PathBuf {
     /// use std::path::PathBuf;;
     ///
     /// let path_buf = PathBuf::from("112902.log");
-    /// assert!(path_buf.parse_number_from_path() == 112902);
+    /// assert_eq!(path_buf.parse_number_from_path().unwrap(), 112902);
     /// ```
     fn parse_number_from_path(&self) -> Result<u64> {
         self.file_stem()

@@ -89,7 +89,8 @@ impl KvStore {
     /// Sets a new value for the given key in the store.
     /// ```rust
     /// use kvs::KvStore;
-    /// let mut store = KvStore::new();
+    /// use std::env::temp_dir;
+    /// let mut store = KvStore::open(temp_dir()).unwrap();
     /// store.set(String::from("module_name"), String::from("kvs"));
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
@@ -100,16 +101,20 @@ impl KvStore {
     /// Retrieves a value from the store.
     /// ```rust
     /// use kvs::KvStore;
-    /// let mut store = KvStore::new();
+    /// use std::env::temp_dir;
+    /// let mut store = KvStore::open(temp_dir()).unwrap();
     /// store.set(String::from("name"), String::from("Caroline"));
     ///
-    /// let name = store.get(String::from("name")).expect("Name was not found in store.");
-    /// assert!(name == String::from("Caroline"));
+    /// let name = store.get(String::from("name")).expect("Name was not found in store.").unwrap();
+    /// assert_eq!(name, String::from("Caroline"));
     /// ```
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         let index = self.store.get(key.as_str());
         if let Some(position) = index {
-            match self.read_index(*position) {
+            // This clone is to get around a mutable borrow reservation conflict.
+            // For more info, see the tracking issue: https://github.com/rust-lang/rust/issues/59159
+            let cloned_position = position.clone();
+            match self.read_index(cloned_position) {
                 Ok(Entry::Rm(..)) => Ok(None),
                 Ok(Entry::Set(.., value)) => Ok(Some(value.parse().unwrap())),
                 Err(error) => Err(error),
@@ -122,9 +127,11 @@ impl KvStore {
     /// Removes the given key from the store.
     /// ```rust
     /// use kvs::KvStore;
-    /// let mut store = KvStore::new();
+    /// use std::env::temp_dir;
+    /// let mut store = KvStore::open(temp_dir()).unwrap();
     /// store.set(String::from("album_name"), String::from("Blood Type"));
     /// store.remove(String::from("album_name"));
+    /// assert!(store.get(String::from("album_name")).unwrap().is_none());
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
         let is_existing_value = self.get(key.clone())?.is_some();
