@@ -18,15 +18,13 @@ use super::{
     BufReaderWithPosition, BufWriterWithPosition, Entry, KvsError, ParsePath,
     Position, Result,
 };
-
+use crate::KvsEngine;
 use serde_json::Deserializer;
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
 use std::fs::{create_dir, File};
 use std::io::{Read, Seek, SeekFrom, Write};
-
 use std::path::PathBuf;
-
-use std::fs;
 
 const COMPACTION_MINIMUM: u64 = 500;
 
@@ -82,63 +80,6 @@ impl KvStore {
             next_command_position,
             compaction_counter: 0,
         })
-    }
-
-    /// Sets a new value for the given key in the store.
-    /// ```rust
-    /// use kvs::KvStore;
-    /// use std::env::temp_dir;
-    /// let mut store = KvStore::open(temp_dir()).unwrap();
-    /// store.set(String::from("module_name"), String::from("kvs"));
-    /// ```
-    pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let new_entry = Entry::set(key, value);
-        self.append_entry(new_entry)
-    }
-
-    /// Retrieves a value from the store.
-    /// ```rust
-    /// use kvs::KvStore;
-    /// use std::env::temp_dir;
-    /// let mut store = KvStore::open(temp_dir()).unwrap();
-    /// store.set(String::from("name"), String::from("Caroline"));
-    ///
-    /// let name = store.get(String::from("name")).expect("Name was not found in store.").unwrap();
-    /// assert_eq!(name, String::from("Caroline"));
-    /// ```
-    pub fn get(&mut self, key: String) -> Result<Option<String>> {
-        let index = self.store.get(key.as_str());
-        if let Some(position) = index {
-            // This clone is to get around a mutable borrow reservation conflict.
-            // For more info, see the tracking issue: https://github.com/rust-lang/rust/issues/59159
-            let cloned_position = *position;
-            match self.read_index(cloned_position) {
-                Ok(Entry::Rm(..)) => Ok(None),
-                Ok(Entry::Set(.., value)) => Ok(Some(value.parse().unwrap())),
-                Err(error) => Err(error),
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Removes the given key from the store.
-    /// ```rust
-    /// use kvs::KvStore;
-    /// use std::env::temp_dir;
-    /// let mut store = KvStore::open(temp_dir()).unwrap();
-    /// store.set(String::from("album_name"), String::from("Blood Type"));
-    /// store.remove(String::from("album_name"));
-    /// assert!(store.get(String::from("album_name")).unwrap().is_none());
-    /// ```
-    pub fn remove(&mut self, key: String) -> Result<()> {
-        let is_existing_value = self.get(key.clone())?.is_some();
-        if !is_existing_value {
-            Err(KvsError::from_string("Key not found"))
-        } else {
-            let entry = Entry::rm(key);
-            self.append_entry(entry)
-        }
     }
 
     fn read_index(&mut self, index: Position) -> Result<Entry> {
@@ -220,6 +161,65 @@ impl KvStore {
         }
 
         Ok(())
+    }
+}
+
+impl KvsEngine for KvStore {
+    /// Sets a new value for the given key in the store.
+    /// ```rust
+    /// use kvs::{KvStore, KvsEngine};
+    /// use std::env::temp_dir;
+    /// let mut store = KvStore::open(temp_dir()).unwrap();
+    /// store.set(String::from("module_name"), String::from("kvs"));
+    /// ```
+    fn set(&mut self, key: String, value: String) -> Result<()> {
+        let new_entry = Entry::set(key, value);
+        self.append_entry(new_entry)
+    }
+
+    /// Retrieves a value from the store.
+    /// ```rust
+    /// use kvs::{KvStore, KvsEngine};
+    /// use std::env::temp_dir;
+    /// let mut store = KvStore::open(temp_dir()).unwrap();
+    /// store.set(String::from("name"), String::from("Caroline"));
+    ///
+    /// let name = store.get(String::from("name")).expect("Name was not found in store.").unwrap();
+    /// assert_eq!(name, String::from("Caroline"));
+    /// ```
+    fn get(&mut self, key: String) -> Result<Option<String>> {
+        let index = self.store.get(key.as_str());
+        if let Some(position) = index {
+            // This clone is to get around a mutable borrow reservation conflict.
+            // For more info, see the tracking issue: https://github.com/rust-lang/rust/issues/59159
+            let cloned_position = *position;
+            match self.read_index(cloned_position) {
+                Ok(Entry::Rm(..)) => Ok(None),
+                Ok(Entry::Set(.., value)) => Ok(Some(value.parse().unwrap())),
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Removes the given key from the store.
+    /// ```rust
+    /// use kvs::{KvStore, KvsEngine};
+    /// use std::env::temp_dir;
+    /// let mut store = KvStore::open(temp_dir()).unwrap();
+    /// store.set(String::from("album_name"), String::from("Blood Type"));
+    /// store.remove(String::from("album_name"));
+    /// assert!(store.get(String::from("album_name")).unwrap().is_none());
+    /// ```
+    fn remove(&mut self, key: String) -> Result<()> {
+        let is_existing_value = self.get(key.clone())?.is_some();
+        if !is_existing_value {
+            Err(KvsError::from_string("Key not found"))
+        } else {
+            let entry = Entry::rm(key);
+            self.append_entry(entry)
+        }
     }
 }
 

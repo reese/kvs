@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate kvs;
 
-use kvs::{KvStore, Result};
+use kvs::{KvStore, KvsEngine, Result};
 use std::env::current_dir;
 use std::process::exit;
 use structopt::StructOpt;
