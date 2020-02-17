@@ -49,7 +49,7 @@ pub struct KvStore {
 impl KvStore {
     /// Initializes `KvStore` readers and writers.
     pub fn open(path: impl Into<PathBuf> + Clone) -> Result<KvStore> {
-        let mut path_buf: PathBuf = path.clone().into();
+        let mut path_buf: PathBuf = path.into();
         path_buf.push(".kvs");
         if !path_buf.exists() {
             create_dir(path_buf.clone()).map_err(KvsError::from)?;
@@ -94,7 +94,7 @@ impl KvStore {
     /// store.set(String::from("module_name"), String::from("kvs"));
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let new_entry = Entry::set(key.clone(), value.clone());
+        let new_entry = Entry::set(key, value);
         self.append_entry(new_entry)
     }
 
@@ -138,7 +138,7 @@ impl KvStore {
         if !is_existing_value {
             Err(KvsError::from_string("Key not found"))
         } else {
-            let entry = Entry::rm(key.clone());
+            let entry = Entry::rm(key);
             self.append_entry(entry)
         }
     }
